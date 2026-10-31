@@ -290,38 +290,52 @@ def test_opensky_rejects_non_mapping_response(response: object) -> None:
 
 def test_opensky_rejects_invalid_states() -> None:
     client = OpenSkyAPI()
-    setattr(client, "_request_json", Mock(return_value={"states": "invalid"}))
+    setattr(client, "_request_json", Mock(return_value={"time": 123, "states": "invalid"}))
 
     with pytest.raises(APIError, match="некорректный список"):
         client.get_data(BoundingBox(10, 20, 30, 40))
 
 
-@pytest.mark.parametrize("response", [{}, {"states": None}, {"states": []}])
+@pytest.mark.parametrize("server_time", [None, True])
+def test_opensky_rejects_invalid_server_time(server_time: object) -> None:
+    client = OpenSkyAPI()
+    setattr(client, "_request_json", Mock(return_value={"time": server_time, "states": []}))
+
+    with pytest.raises(APIError, match="время сервера"):
+        client.get_data(BoundingBox(10, 20, 30, 40))
+
+
+@pytest.mark.parametrize(
+    "response",
+    [{"time": 123}, {"time": 123, "states": None}, {"time": 123, "states": []}],
+)
 def test_opensky_accepts_empty_states(response: dict[str, object]) -> None:
     client = OpenSkyAPI()
     setattr(client, "_request_json", Mock(return_value=response))
 
-    assert client.get_data(BoundingBox(10, 20, 30, 40)) == []
+    assert client.get_data(BoundingBox(10, 20, 30, 40)) == (123, [])
 
 
 def test_opensky_filters_and_returns_aircraft() -> None:
     client = OpenSkyAPI()
     request = Mock(
         return_value={
+            "time": 123,
             "states": [
                 "invalid",
                 aircraft_vector(**{"8": True}),
                 aircraft_vector(**{"5": "bad"}),
                 aircraft_vector(**{"5": 50.0}),
                 aircraft_vector(),
-            ]
+            ],
         }
     )
     setattr(client, "_request_json", request)
     bounding_box = BoundingBox(10, 20, 30, 40)
 
-    result = client.get_data(bounding_box)
+    server_time, result = client.get_data(bounding_box)
 
+    assert server_time == 123
     assert len(result) == 1
     assert result[0].icao24 == "abc123"
     request.assert_called_once_with(
@@ -329,8 +343,14 @@ def test_opensky_filters_and_returns_aircraft() -> None:
         {"extended": 1, "lamin": "10", "lamax": "20", "lomin": "30", "lomax": "40"},
     )
 
-    setattr(client, "_request_json", Mock(return_value={"states": [aircraft_vector(**{"8": True})]}))
-    assert len(client.get_data(bounding_box, airborne_only=False)) == 1
+    setattr(
+        client,
+        "_request_json",
+        Mock(return_value={"time": 124, "states": [aircraft_vector(**{"8": True})]}),
+    )
+    server_time, result = client.get_data(bounding_box, airborne_only=False)
+    assert server_time == 124
+    assert len(result) == 1
 
 
 @pytest.mark.parametrize(

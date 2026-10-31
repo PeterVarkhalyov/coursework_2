@@ -178,12 +178,16 @@ class OpenSkyAPI(AbstractAPIClient):
         # OpenSky разрешает анонимные запросы, поэтому отдельная авторизация не нужна.
         return True
 
-    def get_data(self, bounding_box: BoundingBox, airborne_only: bool = True) -> list[AircraftState]:
+    def get_data(self, bounding_box: BoundingBox, airborne_only: bool = True) -> tuple[int, list[AircraftState]]:
         params: dict[str, str | int] = {"extended": 1}
         params.update(bounding_box.to_query_params())
         response = self._request_json("states/all", params)
         if not isinstance(response, dict):
             raise APIError("OpenSky вернул неожиданный ответ")
+
+        server_time = response.get("time")
+        if not isinstance(server_time, int) or isinstance(server_time, bool):
+            raise APIError("OpenSky не вернул корректное время сервера")
 
         states = response.get("states") or []
         if not isinstance(states, list):
@@ -200,7 +204,7 @@ class OpenSkyAPI(AbstractAPIClient):
                 continue
             if bounding_box.contains(state.latitude, state.longitude):
                 aircraft.append(state)
-        return aircraft
+        return server_time, aircraft
 
     @staticmethod
     def _parse_aircraft(item: Any) -> AircraftState | None:

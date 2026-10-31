@@ -1,0 +1,15 @@
+{
+  "https://nominatim.openstreetmap.org|россия": {
+    "query": "Россия",
+    "display_name": "Россия",
+    "country_code": "RU",
+    "latitude": 64.6863136,
+    "longitude": 97.7453061,
+    "bounding_box": {
+      "south": 41.1850968,
+      "north": 82.0586232,
+      "west": -180.0,
+      "east": 180.0
+    }
+  }
+}

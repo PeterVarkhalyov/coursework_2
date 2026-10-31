@@ -108,6 +108,13 @@ poetry run python -m src Россия
     "Geocoding © OpenStreetMap contributors, ODbL 1.0",
     "Aircraft data © The OpenSky Network"
   ],
+  "result": true,
+  "msg": {
+    "code": 0,
+    "error": null
+  },
+  "count": 1,
+  "time": 1766142246,
   "countries": [
     {
       "country": {
@@ -122,33 +129,58 @@ poetry run python -m src Россия
           "east": 180.0
         }
       },
-      "aircraft": [
-        {
-          "icao24": "abc123",
-          "callsign": "TEST1",
-          "origin_country": "Russian Federation",
-          "time_position": 1793450000,
-          "last_contact": 1793450005,
-          "longitude": 37.6176,
-          "latitude": 55.7558,
-          "baro_altitude": 10000.0,
-          "on_ground": false,
-          "velocity": 230.0,
-          "true_track": 90.0,
-          "vertical_rate": 1.5,
-          "sensors": [1, 2],
-          "geo_altitude": 10100.0,
-          "squawk": "7000",
-          "spi": false,
-          "position_source": 0
-        }
-      ]
+      "data": {
+        "count": 1,
+        "time": 1766142240,
+        "aircraft": [
+          {
+            "icao24": "abc123",
+            "callsign": "TEST1",
+            "origin_country": "Russian Federation",
+            "time_position": 1793450000,
+            "last_contact": 1793450005,
+            "longitude": 37.6176,
+            "latitude": 55.7558,
+            "baro_altitude": 10000.0,
+            "on_ground": false,
+            "velocity": 230.0,
+            "true_track": 90.0,
+            "vertical_rate": 1.5,
+            "sensors": [1, 2],
+            "geo_altitude": 10100.0,
+            "squawk": "7000",
+            "spi": false,
+            "position_source": 0
+          }
+        ]
+      }
     }
   ]
 }
 ```
 
 Значения некоторых полей могут быть `null`, если OpenSky не располагает соответствующими данными.
+Верхний `time` содержит время формирования общего результата, а `countries[].data.time` — время сервера OpenSky
+из ответа `states/all` для соответствующей страны.
+
+При ошибке возвращается ответ следующего вида:
+
+```json
+{
+  "attribution": [
+    "Geocoding © OpenStreetMap contributors, ODbL 1.0",
+    "Aircraft data © The OpenSky Network"
+  ],
+  "result": false,
+  "msg": {
+    "code": 1000,
+    "error": "Сообщение об ошибке"
+  },
+  "count": 0,
+  "time": 1766142246,
+  "countries": []
+}
+```
 
 ## Архитектура
 
@@ -163,13 +195,11 @@ CountryCoordinates + BoundingBox
       ↓
 OpenSkyAPI
       ↓
-list[AircraftState]
+время сервера + list[AircraftState]
       ↓
 AirspaceCollector
       ↓
-list[CountryAirspace]
-      ↓
-JSON
+dict с результатом, временем и данными стран
 ```
 
 Основные классы:
@@ -268,7 +298,35 @@ from src import AirspaceCollector, NominatimAPI, OpenSkyAPI
 - состояние транспондера.
 
 Поля с типом `... | None` могут отсутствовать в ответе OpenSky.
- 
+
+При создании объекта выполняется валидация данных:
+
+- `icao24` должен состоять из шести шестнадцатеричных символов;
+- `origin_country` должен быть непустой строкой;
+- `callsign` и `squawk` очищаются от пробелов и могут принимать значение `None`;
+- координаты должны находиться в диапазонах от `-90` до `90` и от `-180` до `180`;
+- скорость не может быть отрицательной;
+- курс должен находиться в диапазоне от `0` до `360` градусов;
+- временные метки и источник позиции должны быть целыми неотрицательными числами или `None`;
+- `on_ground` и `spi` должны иметь тип `bool`;
+- `sensors` должен быть списком целых чисел или `None`.
+
+Свойство `altitude` возвращает `geo_altitude`. Если геометрическая высота неизвестна, используется
+`baro_altitude`.
+
+Методы сравнения:
+
+| Метод | Назначение | Результат |
+|---|---|---|
+| `compare_speed(other)` | Сравнение по `velocity` | `-1`, `0` или `1` |
+| `compare_altitude(other)` | Сравнение по свойству `altitude` | `-1`, `0` или `1` |
+| `is_faster_than(other)` | Проверка, быстрее ли текущий самолёт | `bool` |
+| `is_higher_than(other)` | Проверка, выше ли текущий самолёт | `bool` |
+
+Значение `-1` означает, что текущий самолёт медленнее или ниже, `0` — значения равны, `1` — текущий самолёт
+быстрее или выше. Сравнивать можно только объекты `AircraftState`. Если отсутствуют скорость или оба значения
+высоты, метод сравнения выбрасывает `ValueError`.
+
 #### Class `CountryAirspace` 
 
 Объединяет сведения о стране и список найденных в её прямоугольных границах воздушных судов.
@@ -296,8 +354,9 @@ from src import AirspaceCollector, NominatimAPI, OpenSkyAPI
   
 #### Class `OpenSkyAPI` 
 
-Запрашивает endpoint `states/all` по границам `BoundingBox`, преобразует массивы OpenSky в объекты `AircraftState`, исключает 
-некорректные записи и при необходимости удаляет объекты, находящиеся на земле.
+Запрашивает endpoint `states/all` по границам `BoundingBox`, преобразует массивы OpenSky в объекты `AircraftState`,
+сохраняет время ответа сервера, исключает некорректные записи и при необходимости удаляет объекты, находящиеся
+на земле.
 
 Вспомогательные методы `_to_float()`, `_to_int()` и `_to_int_list()` безопасно преобразуют необязательные значения
 из ответа OpenSky. Если значение отсутствует или имеет неподходящий формат, они возвращают `None`.
@@ -315,12 +374,13 @@ from src import AirspaceCollector, NominatimAPI, OpenSkyAPI
 1. удаляет пробелы из названий стран и исключает пустые значения;
 2. запрашивает через `NominatimAPI` координаты и `BoundingBox` каждой страны;
 3. передаёт границы в `OpenSkyAPI`;
-4. получает список объектов `AircraftState`;
-5. объединяет страну и воздушные суда в объект `CountryAirspace`;
-6. возвращает список результатов для всех выбранных стран.
+4. получает время сервера OpenSky и список объектов `AircraftState`;
+5. преобразует модели страны и самолётов в JSON-совместимые словари;
+6. возвращает общий словарь с результатом, кодом, временем и данными стран.
 
 Параметр `airborne_only` передаётся клиенту OpenSky и позволяет исключить наземные объекты. Если после очистки не
-осталось ни одного названия страны, метод выбрасывает `ValueError`.
+осталось ни одного названия страны или один из API-клиентов вернул ошибку, метод возвращает ответ с
+`result: false`, кодом `1000` и текстом ошибки.
 
 ## Тестирование
 
@@ -334,13 +394,14 @@ poetry run pytest
 Текущий результат:
 
 ```text
-67 passed
+90 passed
 Statements: 100%
 Branches:   100%
 Total:      100%
 ```
 
-Тесты не выполняют реальные запросы к Nominatim и OpenSky. Сетевые ответы и ошибки имитируются.
+Тесты не выполняют реальные запросы к Nominatim и OpenSky. Сетевые ответы и ошибки имитируются. Отдельные тесты
+проверяют нормализацию и валидацию `AircraftState`, выбор высоты, сравнение скорости и сравнение высоты.
 
 ## Проверка качества кода
 

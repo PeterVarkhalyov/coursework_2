@@ -104,6 +104,42 @@ def test_add_rejects_an_object_of_another_type(tmp_path: Path) -> None:
         storage.add_aircraft({"icao24": "abc123"})  # type: ignore[arg-type]
 
 
+def test_replace_aircraft_overwrites_file(tmp_path: Path, aircraft: AircraftState) -> None:
+    storage = JSONAircraftStorage(tmp_path / "aircraft.json")
+    replacement = replace(aircraft, icao24="def456", callsign="SECOND")
+    storage.add_aircraft(aircraft)
+
+    storage.replace_aircraft([replacement])
+
+    assert storage.get_aircraft() == [replacement]
+
+
+def test_replace_aircraft_rejects_an_object_of_another_type(tmp_path: Path) -> None:
+    storage = JSONAircraftStorage(tmp_path / "aircraft.json")
+
+    with pytest.raises(TypeError, match="Все элементы"):
+        storage.replace_aircraft([{"icao24": "abc123"}])  # type: ignore[list-item]
+
+
+def test_replace_aircraft_with_empty_list_clears_file(tmp_path: Path, aircraft: AircraftState) -> None:
+    storage = JSONAircraftStorage(tmp_path / "aircraft.json")
+    storage.add_aircraft(aircraft)
+
+    storage.replace_aircraft([])
+
+    assert storage.get_aircraft() == []
+
+
+def test_replace_aircraft_does_not_read_old_file(tmp_path: Path, aircraft: AircraftState) -> None:
+    file_path = tmp_path / "aircraft.json"
+    file_path.write_text("invalid json", encoding="utf-8")
+    storage = JSONAircraftStorage(file_path)
+
+    storage.replace_aircraft([aircraft])
+
+    assert storage.get_aircraft() == [aircraft]
+
+
 def test_delete_aircraft_rewrites_file(tmp_path: Path, aircraft: AircraftState) -> None:
     storage = JSONAircraftStorage(tmp_path / "aircraft.json")
     second_aircraft = replace(aircraft, icao24="def456", callsign="SECOND")

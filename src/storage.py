@@ -2,7 +2,7 @@
 
 import json
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, fields
 from json import JSONDecodeError
 from pathlib import Path
@@ -29,6 +29,10 @@ class AbstractAircraftStorage(ABC):
         """Добавить информацию об одном воздушном судне в хранилище."""
 
     @abstractmethod
+    def replace_aircraft(self, aircraft: Sequence[AircraftState]) -> None:
+        """Полностью заменить содержимое хранилища переданными воздушными судами."""
+
+    @abstractmethod
     def get_aircraft(self, criteria: Mapping[str, object] | None = None) -> list[AircraftState]:
         """Получить воздушные суда, атрибуты которых соответствуют критериям."""
 
@@ -46,6 +50,7 @@ class JSONAircraftStorage(AbstractAircraftStorage):
 
     Methods:
         add_aircraft(): добавляет объект AircraftState в конец JSON-списка.
+        replace_aircraft(): заменяет содержимое файла переданным списком.
         get_aircraft(): возвращает все записи или записи по критериям.
         delete_aircraft(): удаляет записи по заданным критериям.
     """
@@ -65,6 +70,15 @@ class JSONAircraftStorage(AbstractAircraftStorage):
         records = self._read_records()
         records.append(asdict(aircraft))
         self._write_records(records)
+
+    def replace_aircraft(self, aircraft: Sequence[AircraftState]) -> None:
+        """Полностью заменить содержимое JSON-файла одной операцией записи."""
+
+        aircraft_list = list(aircraft)
+        if any(not isinstance(item, AircraftState) for item in aircraft_list):
+            raise TypeError("Все элементы aircraft должны быть объектами AircraftState")
+
+        self._write_records([asdict(item) for item in aircraft_list])
 
     def get_aircraft(self, criteria: Mapping[str, object] | None = None) -> list[AircraftState]:
         """Получить воздушное судно, подходящие под все переданные критерии.

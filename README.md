@@ -7,7 +7,8 @@
 1. получает координаты и прямоугольные границы выбранных стран через Nominatim API;
 2. передаёт эти границы в OpenSky API;
 3. получает воздушные суда, находящиеся внутри найденных областей;
-4. выводит результат в JSON.
+4. выводит результат в JSON;
+5. позволяет сохранять, искать и удалять сведения о воздушных судах в JSON-файле.
 
 Проект использует только стандартную библиотеку Python для выполнения HTTP-запросов. 
 OpenSky API работает в анонимном режиме, без логина и пароля.
@@ -200,6 +201,12 @@ OpenSkyAPI
 AirspaceCollector
       ↓
 dict с результатом, временем и данными стран
+
+AircraftState
+      ↓
+AbstractAircraftStorage
+      ↓
+JSONAircraftStorage → JSON-файл
 ```
 
 Основные классы:
@@ -211,7 +218,9 @@ dict с результатом, временем и данными стран
 - `BoundingBox` — прямоугольные географические границы;
 - `CountryCoordinates` — сведения о стране;
 - `AircraftState` — состояние одного воздушного судна;
-- `CountryAirspace` — итоговые данные по одной стране.
+- `CountryAirspace` — итоговые данные по одной стране;
+- `AbstractAircraftStorage` — общий интерфейс файлового или удалённого хранилища;
+- `JSONAircraftStorage` — добавление, поиск и удаление воздушных судов в JSON-файле.
 
 ## Структура проекта
 
@@ -225,11 +234,13 @@ coursework_2/
 │   ├── __init__.py
 │   ├── api.py
 │   ├── models.py
-│   └── service.py
+│   ├── service.py
+│   └── storage.py
 ├── tests/
 │   ├── test_api.py
 │   ├── test_models.py
-│   └── test_service.py
+│   ├── test_service.py
+│   └── test_storage.py
 ├── .coverage
 ├── .flake8
 ├── .gitignore
@@ -252,7 +263,9 @@ from src import AirspaceCollector, NominatimAPI, OpenSkyAPI
 - `APIError` и `AbstractAPIClient`;
 - клиенты `NominatimAPI` и `OpenSkyAPI`;
 - модели `BoundingBox`, `CountryCoordinates`, `AircraftState` и `CountryAirspace`;
-- сервис `AirspaceCollector`.
+- сервис `AirspaceCollector`;
+- интерфейс `AbstractAircraftStorage`, JSON-коннектор `JSONAircraftStorage` и `StorageError`;
+- заглушки `CSVAircraftStorage`, `TXTAircraftStorage`, `XLSXAircraftStorage` и `SQLAircraftStorage`.
 
 
 ### Модуль `models.py`
@@ -382,6 +395,68 @@ from src import AirspaceCollector, NominatimAPI, OpenSkyAPI
 осталось ни одного названия страны или один из API-клиентов вернул ошибку, метод возвращает ответ с
 `result: false`, кодом `1000` и текстом ошибки.
 
+### Модуль `storage.py`
+
+Модуль содержит коннекторы для хранения объектов `AircraftState`. Общий абстрактный интерфейс позволяет заменить
+JSON-файл другим форматом, базой данных или удалённым хранилищем, не меняя код, который использует хранилище.
+
+#### Class `StorageError`
+
+Единое исключение для ошибок чтения, проверки и записи хранилища. Например, оно возникает, если JSON повреждён,
+имеет неправильную структуру или содержит запись, из которой нельзя создать корректный `AircraftState`.
+
+#### Class `AbstractAircraftStorage`
+
+Абстрактный базовый класс требует от каждого коннектора реализации трёх методов:
+
+| Метод | Назначение | Результат |
+|---|---|---|
+| `add_aircraft(aircraft)` | Добавляет один объект `AircraftState` | `None` |
+| `get_aircraft(criteria=None)` | Возвращает записи, совпавшие со всеми критериями | `list[AircraftState]` |
+| `delete_aircraft(criteria)` | Удаляет записи, совпавшие со всеми критериями | Количество удалённых записей |
+
+Сам `AbstractAircraftStorage` нельзя создать напрямую. Он определяет контракт, который должен соблюдаться всеми
+конкретными хранилищами.
+
+#### Class `JSONAircraftStorage`
+
+Рабочая реализация файлового хранилища. По умолчанию данные записываются в `data/aircraft.json`, но другой путь
+можно передать при создании объекта. Файл содержит JSON-массив, где каждый элемент соответствует одному
+`AircraftState`.
+
+Основные правила работы:
+
+- отсутствующий файл считается пустым хранилищем и создаётся при первом добавлении;
+- каталог для файла создаётся автоматически;
+- данные записываются в UTF-8 с сохранением кириллицы;
+- без критериев `get_aircraft()` возвращает все записи;
+- несколько критериев объединяются по правилу «И»: запись должна соответствовать каждому значению;
+- неизвестные названия атрибутов в критериях вызывают `ValueError`;
+- удаление без критериев запрещено, чтобы исключить случайную очистку всего файла;
+- после чтения каждая запись проходит валидацию конструктора `AircraftState`.
+
+Пример использования:
+
+```python
+from src import JSONAircraftStorage
+
+storage = JSONAircraftStorage("data/aircraft.json")
+storage.add_aircraft(aircraft)
+
+fast_aircraft = storage.get_aircraft({"origin_country": "Russian Federation", "on_ground": False})
+deleted_count = storage.delete_aircraft({"icao24": "abc123"})
+```
+
+Сравнение значений критериев выполняется на точное равенство. Например, критерий `{"on_ground": False}` вернёт
+только воздушные суда, для которых атрибут `on_ground` равен `False`.
+
+#### Заглушки других хранилищ
+
+Классы `CSVAircraftStorage`, `TXTAircraftStorage`, `XLSXAircraftStorage` и `SQLAircraftStorage` объявлены как основы
+для будущих коннекторов. Пока они не реализуют абстрактные методы, поэтому создать их экземпляры нельзя. Для
+поддержки нового формата необходимо реализовать в соответствующем классе методы `add_aircraft()`,
+`get_aircraft()` и `delete_aircraft()`.
+
 ## Тестирование
 
 Запуск всех тестов:
@@ -394,7 +469,7 @@ poetry run pytest
 Текущий результат:
 
 ```text
-90 passed
+112 passed
 Statements: 100%
 Branches:   100%
 Total:      100%
@@ -402,6 +477,10 @@ Total:      100%
 
 Тесты не выполняют реальные запросы к Nominatim и OpenSky. Сетевые ответы и ошибки имитируются. Отдельные тесты
 проверяют нормализацию и валидацию `AircraftState`, выбор высоты, сравнение скорости и сравнение высоты.
+
+Тесты `test_storage.py` проверяют абстрактный интерфейс, добавление, чтение, фильтрацию и удаление записей,
+создание каталогов, работу с UTF-8, повреждённый JSON, некорректные записи и ошибки файловой системы. Строки и
+ветви `storage.py` покрыты на 100%.
 
 ## Проверка качества кода
 

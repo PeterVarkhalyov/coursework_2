@@ -4,15 +4,17 @@ import time
 from dataclasses import asdict
 from typing import Any
 
-from src.api import APIError, NominatimAPI, OpenSkyAPI
+from src.api import APIError
+from src.interfaces import AircraftProvider, CountryProvider
+from src.models import CountryAirspace
 
 
 class AirspaceCollector:
     """Собирает данные о воздушных судах для выбранных стран.
 
     Attributes:
-        nominatim: клиент для получения координат и границ стран.
-        opensky: клиент для получения информации о воздушных судах.
+        country_provider: поставщик координат и границ стран.
+        aircraft_provider: поставщик информации о воздушных судах.
 
     Methods:
         collect(): возвращает общий результат сбора в формате словаря.
@@ -25,9 +27,20 @@ class AirspaceCollector:
     SUCCESS_CODE = 0
     ERROR_CODE = 1000
 
-    def __init__(self, nominatim: NominatimAPI, opensky: OpenSkyAPI) -> None:
-        self.nominatim = nominatim
-        self.opensky = opensky
+    def __init__(self, country_provider: CountryProvider, aircraft_provider: AircraftProvider) -> None:
+        self.country_provider = country_provider
+        self.aircraft_provider = aircraft_provider
+
+    def collect_country(self, country_name: str, airborne_only: bool = True) -> tuple[int, CountryAirspace]:
+        """Получить время OpenSky и типизированные данные для одной страны."""
+
+        country_name = country_name.strip()
+        if not country_name:
+            raise ValueError("Название страны не может быть пустым")
+
+        country = self.country_provider.get_data(country_name)
+        server_time, aircraft = self.aircraft_provider.get_data(country.bounding_box, airborne_only)
+        return server_time, CountryAirspace(country=country, aircraft=aircraft)
 
     def collect(self, countries: list[str], airborne_only: bool = True) -> dict[str, Any]:
         """Собрать данные и вернуть ответ об успехе или ошибке."""
@@ -40,15 +53,14 @@ class AirspaceCollector:
 
             countries_data: list[dict[str, Any]] = []
             for country_name in country_names:
-                country = self.nominatim.get_data(country_name)
-                server_time, aircraft = self.opensky.get_data(country.bounding_box, airborne_only)
+                server_time, airspace = self.collect_country(country_name, airborne_only)
                 countries_data.append(
                     {
-                        "country": asdict(country),
+                        "country": asdict(airspace.country),
                         "data": {
-                            "count": len(aircraft),
+                            "count": len(airspace.aircraft),
                             "time": server_time,
-                            "aircraft": [asdict(item) for item in aircraft],
+                            "aircraft": [item.to_dict() for item in airspace.aircraft],
                         },
                     }
                 )

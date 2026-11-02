@@ -1,6 +1,6 @@
 """Tests for the project data models."""
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -80,6 +80,19 @@ def test_aircraft_normalizes_text_attributes() -> None:
     assert aircraft.sensors is None
 
 
+def test_aircraft_is_immutable_and_detaches_mutable_sensors() -> None:
+    source_sensors = [1, 2]
+    aircraft = replace(BASE_AIRCRAFT, sensors=source_sensors)
+    source_sensors.append(3)
+
+    assert aircraft.sensors == (1, 2)
+    assert aircraft.to_dict()["sensors"] == [1, 2]
+    assert replace(aircraft, sensors=None).to_dict()["sensors"] is None
+
+    with pytest.raises(FrozenInstanceError):
+        aircraft.velocity = -1  # type: ignore[misc]
+
+
 @pytest.mark.parametrize("icao24", ["abc", "abc12z"])
 def test_aircraft_rejects_invalid_icao24(icao24: str) -> None:
     with pytest.raises(ValueError, match="6 шестнадцатеричных"):
@@ -137,6 +150,7 @@ def test_aircraft_rejects_values_outside_ranges(attribute: str, value: object, m
         ("on_ground", 1),
         ("spi", 0),
         ("sensors", "bad"),
+        ("sensors", 123),
         ("sensors", [True]),
         ("sensors", ["1"]),
     ],

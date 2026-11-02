@@ -1,6 +1,7 @@
 """Модели данных."""
 
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 
 
 @dataclass
@@ -57,7 +58,7 @@ class CountryCoordinates:
     bounding_box: BoundingBox
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class AircraftState:
     """Основная информация об одном воздушном судне, полученной от OpenSky.
     Attributes:
@@ -99,7 +100,7 @@ class AircraftState:
     velocity: float | None
     true_track: float | None
     vertical_rate: float | None
-    sensors: list[int] | None
+    sensors: Sequence[int] | None
     geo_altitude: float | None
     squawk: str | None
     spi: bool
@@ -108,13 +109,13 @@ class AircraftState:
     def __post_init__(self) -> None:
         """Нормализовать и проверить значения атрибутов."""
 
-        self.icao24 = self._required_text("icao24", self.icao24).lower()
+        object.__setattr__(self, "icao24", self._required_text("icao24", self.icao24).lower())
         if len(self.icao24) != 6 or any(symbol not in "0123456789abcdef" for symbol in self.icao24):
             raise ValueError("icao24 должен содержать 6 шестнадцатеричных символов")
 
-        self.origin_country = self._required_text("origin_country", self.origin_country)
-        self.callsign = self._optional_text("callsign", self.callsign)
-        self.squawk = self._optional_text("squawk", self.squawk)
+        object.__setattr__(self, "origin_country", self._required_text("origin_country", self.origin_country))
+        object.__setattr__(self, "callsign", self._optional_text("callsign", self.callsign))
+        object.__setattr__(self, "squawk", self._optional_text("squawk", self.squawk))
 
         self._validate_numeric_attributes()
         self._validate_ranges()
@@ -156,11 +157,12 @@ class AircraftState:
             raise TypeError("on_ground должен иметь тип bool")
         if not isinstance(self.spi, bool):
             raise TypeError("spi должен иметь тип bool")
-        if self.sensors is not None and (
-            not isinstance(self.sensors, list)
-            or any(isinstance(sensor, bool) or not isinstance(sensor, int) for sensor in self.sensors)
-        ):
-            raise TypeError("sensors должен быть списком целых чисел или None")
+        if self.sensors is not None:
+            if isinstance(self.sensors, (str, bytes)) or not isinstance(self.sensors, Sequence):
+                raise TypeError("sensors должен быть последовательностью целых чисел или None")
+            if any(isinstance(sensor, bool) or not isinstance(sensor, int) for sensor in self.sensors):
+                raise TypeError("sensors должен быть последовательностью целых чисел или None")
+            object.__setattr__(self, "sensors", tuple(self.sensors))
 
     @property
     def altitude(self) -> float | None:
@@ -195,6 +197,13 @@ class AircraftState:
         """Вернуть True, если текущий самолёт находится выше другого."""
 
         return self.compare_altitude(other) > 0
+
+    def to_dict(self) -> dict[str, object]:
+        """Вернуть JSON-совместимое представление воздушного судна."""
+
+        data: dict[str, object] = asdict(self)
+        data["sensors"] = list(self.sensors) if self.sensors is not None else None
+        return data
 
     @staticmethod
     def _required_text(name: str, value: object) -> str:

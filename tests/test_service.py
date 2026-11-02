@@ -10,6 +10,62 @@ from src.models import AircraftState, BoundingBox, CountryCoordinates
 from src.service import AirspaceCollector
 
 
+class AlternativeCountryProvider:
+    """Country provider that does not inherit from NominatimAPI."""
+
+    def __init__(self, country: CountryCoordinates) -> None:
+        self.country = country
+
+    def get_data(self, country_name: str) -> CountryCoordinates:
+        return self.country
+
+
+class AlternativeAircraftProvider:
+    """Aircraft provider that does not inherit from OpenSkyAPI."""
+
+    def get_data(
+        self,
+        bounding_box: BoundingBox,
+        airborne_only: bool = True,
+    ) -> tuple[int, list[AircraftState]]:
+        return 123, []
+
+
+def test_collector_accepts_structural_provider_implementations() -> None:
+    country = CountryCoordinates("Россия", "RU", 64.0, 97.0, BoundingBox(10, 20, 30, 40))
+    collector = AirspaceCollector(AlternativeCountryProvider(country), AlternativeAircraftProvider())
+
+    server_time, airspace = collector.collect_country("Россия")
+
+    assert server_time == 123
+    assert airspace.country == country
+    assert airspace.aircraft == []
+
+
+def test_collect_country_returns_typed_airspace() -> None:
+    country = CountryCoordinates("Россия", "RU", 64.0, 97.0, BoundingBox(10, 20, 30, 40))
+    nominatim = Mock()
+    nominatim.get_data.return_value = country
+    opensky = Mock()
+    opensky.get_data.return_value = (123, [])
+    collector = AirspaceCollector(nominatim, opensky)
+
+    server_time, airspace = collector.collect_country(" Россия ", airborne_only=False)
+
+    assert server_time == 123
+    assert airspace.country == country
+    assert airspace.aircraft == []
+    nominatim.get_data.assert_called_once_with("Россия")
+    opensky.get_data.assert_called_once_with(country.bounding_box, False)
+
+
+def test_collect_country_rejects_empty_name() -> None:
+    collector = AirspaceCollector(Mock(), Mock())
+
+    with pytest.raises(ValueError, match="Название страны"):
+        collector.collect_country("   ")
+
+
 def test_collector_returns_failure_for_empty_country_list(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service_module.time, "time", Mock(return_value=1_766_142_246))
     collector = AirspaceCollector(Mock(), Mock())

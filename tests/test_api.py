@@ -10,7 +10,7 @@ from urllib.request import Request
 import pytest
 
 import src.api as api_module
-from src.api import AbstractAPIClient, APIError, NominatimAPI, OpenSkyAPI
+from src.api import AbstractAircraftAPI, AbstractAPIClient, AbstractCountryAPI, APIError, NominatimAPI, OpenSkyAPI
 from src.models import AircraftState, BoundingBox
 
 
@@ -65,6 +65,21 @@ def aircraft_vector(**changes: Any) -> list[Any]:
 def test_abstract_client_cannot_be_instantiated() -> None:
     with pytest.raises(TypeError):
         AbstractAPIClient("https://example.com")  # type: ignore[abstract]
+
+
+@pytest.mark.parametrize("client_class", [AbstractCountryAPI, AbstractAircraftAPI])
+def test_specialized_abstract_clients_require_connect_and_get_data(
+    client_class: type[AbstractAPIClient],
+) -> None:
+    assert client_class.__abstractmethods__ == {"connect", "get_data"}
+
+    with pytest.raises(TypeError):
+        client_class("https://example.com")  # type: ignore[abstract]
+
+
+def test_api_clients_inherit_specialized_abstract_classes() -> None:
+    assert issubclass(NominatimAPI, AbstractCountryAPI)
+    assert issubclass(OpenSkyAPI, AbstractAircraftAPI)
 
 
 def test_common_client_builds_request_and_decodes_json(monkeypatch: pytest.MonkeyPatch) -> None:

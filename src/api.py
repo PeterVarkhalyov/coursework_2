@@ -62,7 +62,27 @@ class AbstractAPIClient(ABC):
             raise APIError("API не ответило или вернуло некорректные данные") from error
 
 
-class NominatimAPI(AbstractAPIClient):
+class AbstractCountryAPI(AbstractAPIClient):
+    """Абстрактный API-клиент для получения координат и границ стран."""
+
+    @abstractmethod
+    def get_data(self, country_name: str) -> CountryCoordinates:
+        """Получить координаты и границы страны по её названию."""
+
+
+class AbstractAircraftAPI(AbstractAPIClient):
+    """Абстрактный API-клиент для получения состояний воздушных судов."""
+
+    @abstractmethod
+    def get_data(
+        self,
+        bounding_box: BoundingBox,
+        airborne_only: bool = True,
+    ) -> tuple[int, list[AircraftState]]:
+        """Получить время сервера и воздушные суда в заданных границах."""
+
+
+class NominatimAPI(AbstractCountryAPI):
     """Класс получения географических координат и прямоугольных границ страны через сервис Nominatim
 
     Attributes:
@@ -154,7 +174,7 @@ class NominatimAPI(AbstractAPIClient):
             self._last_request_time = time.monotonic()
 
 
-class OpenSkyAPI(AbstractAPIClient):
+class OpenSkyAPI(AbstractAircraftAPI):
     """Класс OpenSkyAPI предназначен для получения информации о воздушных судах,
         находящихся в заданных географических границах
 

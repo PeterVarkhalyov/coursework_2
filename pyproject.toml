@@ -12,6 +12,9 @@ dependencies = [
 [project.scripts]
 airspace = "src.main:main"
 
+[tool.poetry]
+packages = [{include = "src"}]
+
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

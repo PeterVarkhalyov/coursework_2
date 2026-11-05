@@ -610,7 +610,7 @@ def test_remove_existing_aircraft_file(
     assert "Не удалось удалить существующий файл" in capsys.readouterr().out
 
 
-def test_user_interaction_removes_existing_file_after_country_input(
+def test_user_interaction_keeps_existing_file_when_api_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -624,23 +624,42 @@ def test_user_interaction_removes_existing_file_after_country_input(
 
     user_interaction(collector, storage)
 
-    assert not file_path.exists()
+    assert file_path.read_text(encoding="utf-8") == "old"
     assert "Не удалось получить данные" in capsys.readouterr().out
+
+
+def test_user_interaction_removes_existing_file_after_successful_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    airspace: CountryAirspace,
+) -> None:
+    file_path = tmp_path / "aircraft.json"
+    file_path.write_text("old", encoding="utf-8")
+    storage = JSONAircraftStorage(file_path)
+    collector = Mock(spec=AirspaceCollector)
+    collector.collect_country.return_value = (123, airspace)
+    set_inputs(monkeypatch, ["Россия", "0"])
+
+    user_interaction(collector, storage)
+
+    assert not file_path.exists()
 
 
 def test_user_interaction_retries_when_file_removal_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    airspace: CountryAirspace,
 ) -> None:
     storage = JSONAircraftStorage(tmp_path / "aircraft.json")
     collector = Mock(spec=AirspaceCollector)
+    collector.collect_country.return_value = (123, airspace)
     remove_file = Mock(return_value=False)
     monkeypatch.setattr(main_module, "_remove_existing_aircraft_file", remove_file)
     set_inputs(monkeypatch, ["Россия", "0"])
 
     user_interaction(collector, storage)
 
-    collector.collect_country.assert_not_called()
+    collector.collect_country.assert_called_once_with("Россия")
 
 
 @pytest.mark.parametrize("error", [EOFError(), KeyboardInterrupt()])

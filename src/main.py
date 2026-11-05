@@ -77,13 +77,13 @@ def user_interaction(collector: AirspaceService, storage: AbstractAircraftStorag
                 print("Название страны не может быть пустым.")
                 continue
 
-            if isinstance(storage, JSONAircraftStorage) and not _remove_existing_aircraft_file(storage.file_path):
-                continue
-
             try:
                 server_time, airspace = collector.collect_country(country_name)
             except (APIError, ValueError) as error:
                 print(f"Не удалось получить данные: {error}")
+                continue
+
+            if isinstance(storage, JSONAircraftStorage) and not _remove_existing_aircraft_file(storage.file_path):
                 continue
 
             print(f"\nСтрана: {airspace.country.name}")
@@ -485,7 +485,7 @@ def _read_console_value_or_escape(prompt: str) -> str | None:
 
 
 def _remove_existing_aircraft_file(file_path: Path) -> bool:
-    """Удалить прежний JSON-файл при запуске и сообщить об ошибке."""
+    """Удалить прежний JSON-файл после успешного запроса и сообщить об ошибке."""
 
     try:
         file_path.unlink(missing_ok=True)

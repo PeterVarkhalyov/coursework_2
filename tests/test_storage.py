@@ -136,6 +136,16 @@ def test_add_rejects_an_object_of_another_type(tmp_path: Path) -> None:
         storage.add_aircraft({"icao24": "abc123"})  # type: ignore[arg-type]
 
 
+def test_add_rejects_duplicate_icao24(tmp_path: Path, aircraft: AircraftState) -> None:
+    storage = JSONAircraftStorage(tmp_path / "aircraft.json")
+    storage.add_aircraft(aircraft)
+
+    with pytest.raises(StorageError, match="ICAO24 abc123 уже существует"):
+        storage.add_aircraft(replace(aircraft, callsign="DUPLICATE"))
+
+    assert storage.get_aircraft() == [aircraft]
+
+
 def test_replace_aircraft_overwrites_file(tmp_path: Path, aircraft: AircraftState) -> None:
     storage = JSONAircraftStorage(tmp_path / "aircraft.json")
     replacement = replace(aircraft, icao24="def456", callsign="SECOND")

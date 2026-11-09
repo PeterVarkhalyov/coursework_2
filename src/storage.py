@@ -74,6 +74,12 @@ class JSONAircraftStorage(AbstractAircraftStorage):
 
         document = self._read_document()
         records = document["country"]["aircraft"]
+        if any(
+            isinstance(record.get("icao24"), str) and record["icao24"].strip().casefold() == aircraft.icao24.casefold()
+            for record in records
+        ):
+            raise StorageError(f"Воздушное судно с ICAO24 {aircraft.icao24} уже существует")
+
         records.append(aircraft.to_dict())
         document["country"]["count_aircraft"] = len(records)
         self._write_document(document)
